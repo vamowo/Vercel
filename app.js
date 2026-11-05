@@ -1,16 +1,47 @@
 // ---------- Utilidades ----------
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const leerArchivo = (input) => new Promise((ok) => {
+const leerBuffer = (archivo) => new Promise((ok, mal) => {
   const lector = new FileReader();
   lector.onload = () => ok(lector.result);
-  lector.readAsText(input.files[0]);
+  lector.onerror = () => mal(new Error("No se pudo leer el archivo."));
+  lector.readAsArrayBuffer(archivo);
 });
 
 function leerCSV(texto) {
-  const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter((l) => l);
+  const lineas = texto.replace(/^\uFEFF/, "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l);
+  if (!lineas.length) return [];
   const sep = lineas[0].includes("\t") ? "\t" : (lineas[0].includes(";") && !lineas[0].includes(",")) ? ";" : ",";
   return lineas.map((l) => l.split(sep).map((c) => c.trim().replace(/^"|"$/g, "")));
+}
+
+// Devuelve { nombreHoja: filas[][] } (un CSV tiene una sola "hoja")
+async function leerTabla(archivo) {
+  if (!/\.xlsx?$/i.test(archivo.name)) {
+    return { Datos: leerCSV(new TextDecoder("utf-8").decode(await leerBuffer(archivo))) };
+  }
+  if (typeof XLSX === "undefined") throw new Error("No se pudo cargar el lector de Excel (se necesita conexión a internet). Guarda la hoja como CSV e inténtalo de nuevo.");
+  const libro = XLSX.read(await leerBuffer(archivo), { type: "array" });
+  const hojas = {};
+  libro.SheetNames.forEach((n) => {
+    hojas[n] = XLSX.utils.sheet_to_json(libro.Sheets[n], { header: 1, raw: true, defval: "" })
+      .map((fila) => fila.map((c) => String(c).trim()));
+  });
+  return hojas;
+}
+
+// Ubica la tabla dentro de una hoja: el encabezado es la primera fila "ancha"
+// y la tabla termina en la primera fila completamente vacía.
+function extraerTabla(filas) {
+  const llenas = (f) => f.filter((c) => c !== "").length;
+  const ancho = Math.max(0, ...filas.slice(0, 15).map(llenas));
+  const ini = filas.findIndex((f) => llenas(f) >= Math.max(2, ancho * 0.6));
+  if (ini < 0) return [];
+  let fin = ini + 1;
+  while (fin < filas.length && llenas(filas[fin]) > 0) fin++;
+  const bloque = filas.slice(ini, fin);
+  const cols = bloque[0].map((c, j) => (c !== "" ? j : -1)).filter((j) => j >= 0);
+  return bloque.map((f) => cols.map((j) => f[j] ?? ""));
 }
 
 function mezclar(arr) {
@@ -50,16 +81,10 @@ function detectarTipos(datos) {
 
 function validarPrueba(filas, encabezado, tipos) {
   const errores = [];
-  const nAtr = tipos.length;
-  const columnas = filas[0].length;
-  if (columnas !== nAtr && columnas !== nAtr + 1) {
-    return [`El archivo de pruebas tiene ${columnas} columnas y se esperaban ${nAtr} o ${nAtr + 1}.`];
-  }
   const datos = filas.slice(1);
   if (datos.length === 0) errores.push("El archivo de pruebas no tiene instancias.");
   datos.forEach((f, i) => {
-    if (f.length !== columnas) errores.push(`Prueba, fila ${i + 2}: número de columnas incorrecto.`);
-    else if (f.some((v) => v === "" || v === "?")) errores.push(`Prueba, fila ${i + 2}: contiene valores vacíos.`);
+    if (f.slice(0, tipos.length).some((v) => v === "" || v === "?")) errores.push(`Prueba, fila ${i + 2}: contiene valores vacíos.`);
     else tipos.forEach((t, j) => {
       if (t === "num" && !isFinite(Number(f[j]))) errores.push(`Prueba, fila ${i + 2}: "${encabezado[j]}" debe ser numérico.`);
     });
@@ -215,24 +240,29 @@ function calcularMetricas(reales, predichos, clases) {
 
 // ---------- Mostrar resultados ----------
 function mostrarMatriz(m, clases) {
+  const suma = (f) => clases.reduce((s, c) => s + f(c), 0);
+  const max = Math.max(1, ...clases.flatMap((p) => clases.map((r) => m[p][r])));
   let h = "<table><tr><th>Predicho \\ Real</th>" + clases.map((c) => `<th>${esc(c)}</th>`).join("") + "<th>Total</th></tr>";
   clases.forEach((p) => {
-    h += `<tr><th>${esc(p)}</th>` + clases.map((r) => `<td class="${p === r ? "diag" : ""}">${m[p][r]}</td>`).join("");
-    h += `<td>${clases.reduce((s, r) => s + m[p][r], 0)}</td></tr>`;
+    h += `<tr><th>${esc(p)}</th>` + clases.map((r) =>
+      `<td class="${p === r ? "diag" : m[p][r] ? "fallo" : ""}" style="--i:${(m[p][r] / max).toFixed(2)}">${m[p][r]}</td>`).join("");
+    h += `<td>${suma((r) => m[p][r])}</td></tr>`;
   });
-  h += '<tr class="total"><td>Total</td>' + clases.map((r) => `<td>${clases.reduce((s, p) => s + m[p][r], 0)}</td>`).join("");
-  h += `<td>${clases.reduce((s, p) => s + clases.reduce((t, r) => t + m[p][r], 0), 0)}</td></tr></table>`;
+  h += '<tr class="total"><td>Total</td>' + clases.map((r) => `<td>${suma((p) => m[p][r])}</td>`).join("");
+  h += `<td>${suma((p) => suma((r) => m[p][r]))}</td></tr></table>`;
   $("matriz").innerHTML = h;
 }
 
 function mostrarMetricas(res) {
   const f = (x) => x.toFixed(2);
+  const celda = (x) => `<td>${f(x)}<span class="bar"><i style="width:${Math.round(x * 100)}%"></i></span></td>`;
   let h = "<table><tr><th>Categoría</th><th>Precisión</th><th>Exhaustividad</th><th>Medida F1</th><th>Soporte</th></tr>";
-  res.filas.forEach((r) => (h += `<tr><td>${esc(r.clase)}</td><td>${f(r.precision)}</td><td>${f(r.recall)}</td><td>${f(r.f1)}</td><td>${r.soporte}</td></tr>`));
+  res.filas.forEach((r) => (h += `<tr><td>${esc(r.clase)}</td>${celda(r.precision)}${celda(r.recall)}${celda(r.f1)}<td>${r.soporte}</td></tr>`));
   const p = res.promedio;
-  h += `<tr class="total"><td>Promedio / total</td><td>${f(p.precision)}</td><td>${f(p.recall)}</td><td>${f(p.f1)}</td><td>${p.soporte}</td></tr></table>`;
+  h += `<tr class="total"><td>Promedio / total</td>${celda(p.precision)}${celda(p.recall)}${celda(p.f1)}<td>${p.soporte}</td></tr></table>`;
   $("metricas").innerHTML = h;
   $("accuracy").textContent = (res.accuracy * 100).toFixed(2) + "%";
+  $("aciertos").textContent = `${Math.round(res.accuracy * p.soporte)} de ${p.soporte} instancias correctas`;
 }
 
 function mostrarPredicciones(filas, predichos, encabezado, nAtr) {
@@ -249,20 +279,99 @@ function mostrarErrores(lista) {
 }
 
 // ---------- Interfaz ----------
+const estado = { dataset: null, prueba: null };
+const PATRON = { dataset: /entrena|train|dataset|datos|data/i, prueba: /prueba|test/i };
+const ids = { dataset: ["hojaDataset", "resumenDataset"], prueba: ["hojaPrueba", "resumenPrueba"] };
+
+function ponerOpciones(sel, items) {
+  sel.innerHTML = items.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+}
+
+function elegirHoja(hojas, patron) {
+  const nombres = Object.keys(hojas);
+  return nombres.find((n) => patron.test(n)) ||
+    nombres.find((n) => { const t = extraerTabla(hojas[n]); return t.length >= 3 && t[0].length >= 2; }) || nombres[0];
+}
+
+// Una columna ID (nombre típico o numeración consecutiva) no aporta a la clasificación
+function esColumnaId(nombre, col) {
+  if (/^(id|#|folio|n[uú]m(ero)?|no\.?)$/i.test(nombre)) return true;
+  return col.length > 2 && Number.isInteger(Number(col[0])) && col.every((v, i) => Number(v) === Number(col[0]) + i);
+}
+
+function refrescarAtributos() {
+  const tabla = estado.dataset && estado.dataset.tabla;
+  if (!tabla || !tabla.length) { $("atributos").innerHTML = ""; return; }
+  const clase = Number($("columnaClase").value);
+  $("atributos").innerHTML = tabla[0].map((nombre, j) => {
+    if (j === clase) return "";
+    const marcado = esColumnaId(nombre, tabla.slice(1).map((f) => f[j])) ? "" : "checked";
+    return `<label class="chip"><input type="checkbox" value="${j}" ${marcado}><span>${esc(nombre)}</span></label>`;
+  }).join("");
+}
+
+function refrescarTabla(clave) {
+  const e = estado[clave];
+  if (!e) return;
+  const [selId, resId] = ids[clave];
+  e.tabla = extraerTabla(e.hojas[$(selId).value]);
+  $(resId).textContent = e.tabla.length
+    ? `${e.tabla.length - 1} instancias · ${e.tabla[0].length} columnas`
+    : "No se encontró una tabla en esta hoja.";
+  if (clave === "dataset") {
+    const h = e.tabla[0] || [];
+    ponerOpciones($("columnaClase"), h.map((n, j) => [j, n]));
+    const i = h.findIndex((n) => /^(clase|class|target|etiqueta|label)/i.test(n));
+    $("columnaClase").value = String(i >= 0 ? i : h.length - 1);
+    refrescarAtributos();
+  }
+}
+
+async function cargar(clave, input) {
+  const [selId] = ids[clave];
+  const sel = $(selId);
+  const caja = sel.closest(".hoja");
+  estado[clave] = null;
+  caja.hidden = true;
+  if (clave === "dataset") $("columnas").hidden = true;
+  mostrarErrores([]);
+  if (!input.files.length) return;
+  try {
+    const hojas = await leerTabla(input.files[0]);
+    estado[clave] = { hojas };
+    const nombres = Object.keys(hojas);
+    ponerOpciones(sel, nombres.map((n) => [n, n]));
+    sel.value = elegirHoja(hojas, PATRON[clave]);
+    sel.closest("label").hidden = nombres.length < 2;
+    caja.hidden = false;
+    if (clave === "dataset") $("columnas").hidden = false;
+    refrescarTabla(clave);
+  } catch (err) {
+    mostrarErrores([err.message]);
+  }
+}
+
 function actualizarControles() {
   const modo = document.querySelector('input[name="modo"]:checked').value;
   $("metodo").disabled = modo !== "mismo";
   $("porcentaje").disabled = modo !== "mismo" || $("metodo").value === "cruzada";
   $("lblPorcentaje").style.opacity = $("porcentaje").disabled ? 0.4 : 1;
   $("testFile").disabled = modo !== "externo";
+  $("opcionesMismo").classList.toggle("apagado", modo !== "mismo");
+  $("opcionesExterno").classList.toggle("apagado", modo !== "externo");
   $("lblIntervalos").hidden = $("continuas").value === "normal";
 }
 document.querySelectorAll('input[name="modo"]').forEach((r) => r.addEventListener("change", actualizarControles));
 $("metodo").addEventListener("change", actualizarControles);
 $("continuas").addEventListener("change", actualizarControles);
+$("datasetFile").addEventListener("change", (e) => cargar("dataset", e.target));
+$("testFile").addEventListener("change", (e) => cargar("prueba", e.target));
+$("hojaDataset").addEventListener("change", () => refrescarTabla("dataset"));
+$("hojaPrueba").addEventListener("change", () => refrescarTabla("prueba"));
+$("columnaClase").addEventListener("change", refrescarAtributos);
 actualizarControles();
 
-$("analizar").addEventListener("click", async () => {
+$("analizar").addEventListener("click", () => {
   mostrarErrores([]);
   $("resultados").hidden = true;
   $("predicciones").hidden = true;
@@ -275,11 +384,16 @@ $("analizar").addEventListener("click", async () => {
 
   // Validación de parámetros y archivos
   let errores = validarParametros(modo, metodo, porcentaje, continuas, intervalos);
-  if (!$("datasetFile").files.length) errores.push("Selecciona un archivo de dataset.");
-  if (modo === "externo" && !$("testFile").files.length) errores.push("Selecciona un archivo de pruebas.");
+  const T = estado.dataset && estado.dataset.tabla;
+  if (!T || !T.length) errores.push("Selecciona un archivo de dataset con una tabla válida.");
+  if (modo === "externo" && !(estado.prueba && estado.prueba.tabla && estado.prueba.tabla.length)) errores.push("Selecciona un archivo de pruebas con una tabla válida.");
+  const cols = [...document.querySelectorAll("#atributos input:checked")].map((i) => Number(i.value));
+  if (T && T.length && !cols.length) errores.push("Marca al menos un atributo.");
   if (errores.length) return mostrarErrores(errores);
 
-  const filas = leerCSV(await leerArchivo($("datasetFile")));
+  // Dataset = columnas de atributos elegidas + columna de clase al final
+  const claseIdx = Number($("columnaClase").value);
+  const filas = T.map((f) => [...cols.map((j) => f[j]), f[claseIdx]]);
   errores = validarDataset(filas);
   if (errores.length) return mostrarErrores(errores);
 
@@ -304,11 +418,20 @@ $("analizar").addEventListener("click", async () => {
     clases = [...new Set(datos.map((f) => f[nAtr]))].sort();
     info = `Método: ${metodo}. Entrenamiento: ${folds[0].train.length} instancias. Pruebas: ${reales.length} instancias.`;
   } else {
-    const filasTest = leerCSV(await leerArchivo($("testFile")));
+    // Las columnas del archivo de pruebas se buscan por nombre de encabezado
+    const TP = estado.prueba.tabla;
+    const nombres = TP[0].map((h) => h.toLowerCase());
+    const pos = encabezado.slice(0, nAtr).map((h) => nombres.indexOf(h.toLowerCase()));
+    const faltan = encabezado.slice(0, nAtr).filter((h, i) => pos[i] < 0);
+    if (faltan.length) return mostrarErrores([`Al archivo de pruebas le faltan estas columnas: ${faltan.join(", ")}.`]);
+    const nombreClase = encabezado[nAtr].toLowerCase();
+    const ci = nombres.findIndex((h, j) => !pos.includes(j) && h.startsWith(nombreClase));
+    conClase = ci >= 0;
+    const filasTest = [encabezado.slice(0, conClase ? nAtr + 1 : nAtr),
+      ...TP.slice(1).map((f) => [...pos.map((j) => f[j]), ...(conClase ? [f[ci]] : [])])];
     errores = validarPrueba(filasTest, encabezado, tipos);
     if (errores.length) return mostrarErrores(errores);
     filasPrueba = filasTest.slice(1);
-    conClase = filasTest[0].length === nAtr + 1;
     predichos = correrFold(datos, filasPrueba, tipos, continuas, intervalos);
     if (conClase) {
       reales = filasPrueba.map((f) => f[nAtr]);
@@ -325,5 +448,6 @@ $("analizar").addEventListener("click", async () => {
     mostrarMetricas(res);
     $("info").textContent = info;
     $("resultados").hidden = false;
+    $("resultados").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 });
