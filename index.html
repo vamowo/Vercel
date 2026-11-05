@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clasificador Bayes Ingenuo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Clasificador Bayes Ingenuo</h1>
+  <p class="sub">Carga un CSV (separado por comas, con encabezado). La última columna es la clase.</p>
+
+  <section>
+    <label>Dataset
+      <input type="file" id="datasetFile" accept=".csv,.txt">
+    </label>
+
+    <fieldset>
+      <legend>Pruebas</legend>
+      <label class="inline"><input type="radio" name="modo" value="mismo" checked> Mismo dataset</label>
+      <div class="indent" id="opcionesMismo">
+        <label>Método de validación
+          <select id="metodo">
+            <option value="simple">Simple (X% entrenamiento)</option>
+            <option value="estratificada">Aleatoria estratificada</option>
+            <option value="cruzada">Validación cruzada (50%-50%)</option>
+          </select>
+        </label>
+        <label id="lblPorcentaje">Porcentaje de entrenamiento
+          <input type="number" id="porcentaje" value="70" min="1" max="99">
+        </label>
+      </div>
+
+      <label class="inline"><input type="radio" name="modo" value="externo"> Archivo de pruebas externo</label>
+      <div class="indent">
+        <input type="file" id="testFile" accept=".csv,.txt" disabled>
+        <small>Mismas columnas que el dataset. La columna de clase es opcional.</small>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Variables continuas</legend>
+      <label>Tratamiento
+        <select id="continuas">
+          <option value="normal">Distribución normal (densidad)</option>
+          <option value="ancho">Discretizar: intervalos de ancho igual</option>
+          <option value="frecuencia">Discretizar: intervalos de frecuencia igual</option>
+        </select>
+      </label>
+      <label id="lblIntervalos" hidden>Intervalo de discretización (número de intervalos)
+        <input type="number" id="intervalos" value="5" min="2">
+      </label>
+    </fieldset>
+
+    <button id="analizar">Análisis</button>
+    <div id="errores" role="alert"></div>
+  </section>
+
+  <section id="resultados" hidden>
+    <h2>Matriz de confusión</h2>
+    <div class="scroll" id="matriz"></div>
+
+    <h2>Métricas de evaluación</h2>
+    <div class="scroll" id="metricas"></div>
+
+    <p class="accuracy">Accuracy: <strong id="accuracy"></strong></p>
+    <p id="info" class="sub"></p>
+  </section>
+
+  <section id="predicciones" hidden>
+    <h2>Predicciones</h2>
+    <div class="scroll" id="tablaPred"></div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
