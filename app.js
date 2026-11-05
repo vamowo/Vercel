@@ -451,3 +451,4 @@ $("analizar").addEventListener("click", () => {
     $("resultados").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 });
+
