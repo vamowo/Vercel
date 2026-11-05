@@ -149,7 +149,7 @@ function entrenar(tr, tipos) {
       const col = tr.filter((f) => f[nAtr] === c).map((f) => f[j]);
       if (t === "num") {
         const mu = col.reduce((a, b) => a + b, 0) / col.length;
-        const varianza = col.reduce((a, b) => a + (b - mu) ** 2, 0) / col.length;
+        const varianza = col.reduce((a, b) => a + (b - mu) ** 2, 0) / Math.max(col.length - 1, 1); // muestral (n-1)
         info.porClase[c] = { mu, varianza: Math.max(varianza, 1e-6) };
       } else {
         const conteo = {};
@@ -242,26 +242,30 @@ function calcularMetricas(reales, predichos, clases) {
 function mostrarMatriz(m, clases) {
   const suma = (f) => clases.reduce((s, c) => s + f(c), 0);
   const max = Math.max(1, ...clases.flatMap((p) => clases.map((r) => m[p][r])));
-  let h = "<table><tr><th>Predicho \\ Real</th>" + clases.map((c) => `<th>${esc(c)}</th>`).join("") + "<th>Total</th></tr>";
-  clases.forEach((p) => {
-    h += `<tr><th>${esc(p)}</th>` + clases.map((r) =>
+  let h = '<table class="centrada"><tr><th></th>' + clases.map((c) => `<th>Predicho ${esc(c)}</th>`).join("") + "<th>Total</th></tr>";
+  clases.forEach((r) => {
+    h += `<tr><th>Real ${esc(r)}</th>` + clases.map((p) =>
       `<td class="${p === r ? "diag" : m[p][r] ? "fallo" : ""}" style="--i:${(m[p][r] / max).toFixed(2)}">${m[p][r]}</td>`).join("");
-    h += `<td>${suma((r) => m[p][r])}</td></tr>`;
+    h += `<td>${suma((p) => m[p][r])}</td></tr>`;
   });
-  h += '<tr class="total"><td>Total</td>' + clases.map((r) => `<td>${suma((p) => m[p][r])}</td>`).join("");
+  h += '<tr class="total"><td>Total</td>' + clases.map((p) => `<td>${suma((r) => m[p][r])}</td>`).join("");
   h += `<td>${suma((p) => suma((r) => m[p][r]))}</td></tr></table>`;
   $("matriz").innerHTML = h;
 }
 
 function mostrarMetricas(res) {
-  const f = (x) => x.toFixed(2);
-  const celda = (x) => `<td>${f(x)}<span class="bar"><i style="width:${Math.round(x * 100)}%"></i></span></td>`;
-  let h = "<table><tr><th>Categoría</th><th>Precisión</th><th>Exhaustividad</th><th>Medida F1</th><th>Soporte</th></tr>";
-  res.filas.forEach((r) => (h += `<tr><td>${esc(r.clase)}</td>${celda(r.precision)}${celda(r.recall)}${celda(r.f1)}<td>${r.soporte}</td></tr>`));
+  const pct = (x) => (x * 100).toFixed(2) + "%";
   const p = res.promedio;
-  h += `<tr class="total"><td>Promedio / total</td>${celda(p.precision)}${celda(p.recall)}${celda(p.f1)}<td>${p.soporte}</td></tr></table>`;
+  const fila = (nombre, valores, prom) =>
+    `<tr><td>${nombre}</td>${valores.map((v) => `<td>${pct(v)}</td>`).join("")}<td>${pct(prom)}</td></tr>`;
+  let h = "<table><tr><th>Métrica</th>" + res.filas.map((r) => `<th>Clase positiva: ${esc(r.clase)}</th>`).join("") + "<th>Promedio</th></tr>";
+  h += fila("Exactitud (accuracy)", res.filas.map(() => res.accuracy), res.accuracy);
+  h += fila("Precisión", res.filas.map((r) => r.precision), p.precision);
+  h += fila("Exhaustividad (recall)", res.filas.map((r) => r.recall), p.recall);
+  h += fila("Medida F1 (F1-score)", res.filas.map((r) => r.f1), p.f1);
+  h += `<tr class="total"><td>Soporte</td>${res.filas.map((r) => `<td>${r.soporte}</td>`).join("")}<td>${p.soporte}</td></tr></table>`;
   $("metricas").innerHTML = h;
-  $("accuracy").textContent = (res.accuracy * 100).toFixed(2) + "%";
+  $("accuracy").textContent = pct(res.accuracy);
   $("aciertos").textContent = `${Math.round(res.accuracy * p.soporte)} de ${p.soporte} instancias correctas`;
 }
 
@@ -451,4 +455,3 @@ $("analizar").addEventListener("click", () => {
     $("resultados").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 });
-
