@@ -10,80 +10,87 @@
 <main>
   <header class="hero">
     <h1>Clasificador Bayes Ingenuo</h1>
-    <p class="sub">Carga un dataset en CSV o Excel, elige la clase y los atributos, y evalúa el modelo con matriz de confusión y métricas.</p>
+    <p class="sub">Carga un dataset en CSV o Excel, elige la clase y los atributos, y evalúa el modelo.</p>
   </header>
 
   <section class="card">
     <h2><span class="num">1</span>Dataset</h2>
-    <label>Archivo (.csv, .txt, .xlsx)
-      <input type="file" id="datasetFile" accept=".csv,.txt,.xlsx,.xls">
-    </label>
-    <div class="hoja" hidden>
-      <label>Hoja <select id="hojaDataset"></select></label>
-      <small id="resumenDataset"></small>
+    <div class="cols">
+      <div>
+        <label>Archivo (.csv, .txt, .xlsx)
+          <input type="file" id="datasetFile" accept=".csv,.txt,.xlsx,.xls">
+        </label>
+        <div class="hoja" hidden>
+          <label>Hoja <select id="hojaDataset"></select></label>
+          <small id="resumenDataset"></small>
+        </div>
+      </div>
+      <div id="columnas" hidden>
+        <label>Columna de clase <select id="columnaClase"></select></label>
+      </div>
     </div>
-    <div id="columnas" hidden>
-      <label>Columna de clase <select id="columnaClase"></select></label>
-      <div class="grupo">Atributos a usar</div>
-      <div class="chips" id="atributos"></div>
-    </div>
+    <div class="grupo">Atributos a usar</div>
+    <div class="chips" id="atributos"></div>
   </section>
 
-  <section class="card">
-    <h2><span class="num">2</span>Pruebas</h2>
-    <label class="opcion"><input type="radio" name="modo" value="mismo" checked> Usar el mismo dataset</label>
-    <div class="indent" id="opcionesMismo">
-      <label>Método de validación
-        <select id="metodo">
-          <option value="simple">Simple (X% entrenamiento)</option>
-          <option value="estratificada">Aleatoria estratificada</option>
-          <option value="cruzada">Validación cruzada (50%-50%)</option>
+  <div class="cols fila">
+    <section class="card">
+      <h2><span class="num">2</span>Pruebas</h2>
+      <label class="opcion"><input type="radio" name="modo" value="mismo" checked> Mismo dataset</label>
+      <div class="indent" id="opcionesMismo">
+        <label>Método de validación
+          <select id="metodo">
+            <option value="simple">Simple (X% entrenamiento)</option>
+            <option value="estratificada">Aleatoria estratificada</option>
+            <option value="cruzada">Validación cruzada (50%-50%)</option>
+          </select>
+        </label>
+        <label id="lblPorcentaje">Porcentaje de entrenamiento
+          <input type="number" id="porcentaje" value="70" min="1" max="99">
+        </label>
+      </div>
+
+      <label class="opcion"><input type="radio" name="modo" value="externo"> Archivo de pruebas externo</label>
+      <div class="indent" id="opcionesExterno">
+        <input type="file" id="testFile" accept=".csv,.txt,.xlsx,.xls" disabled>
+        <div class="hoja" hidden>
+          <label>Hoja <select id="hojaPrueba"></select></label>
+          <small id="resumenPrueba"></small>
+        </div>
+        <small>Las columnas se buscan por nombre. La clase es opcional.</small>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2><span class="num">3</span>Variables continuas</h2>
+      <label>Tratamiento
+        <select id="continuas">
+          <option value="normal">Distribución normal (densidad)</option>
+          <option value="ancho">Discretizar: ancho igual</option>
+          <option value="frecuencia">Discretizar: frecuencia igual</option>
         </select>
       </label>
-      <label id="lblPorcentaje">Porcentaje de entrenamiento
-        <input type="number" id="porcentaje" value="70" min="1" max="99">
+      <label id="lblIntervalos" hidden>Número de intervalos
+        <input type="number" id="intervalos" value="5" min="2">
       </label>
-    </div>
-
-    <label class="opcion"><input type="radio" name="modo" value="externo"> Usar un archivo de pruebas externo</label>
-    <div class="indent" id="opcionesExterno">
-      <input type="file" id="testFile" accept=".csv,.txt,.xlsx,.xls" disabled>
-      <div class="hoja" hidden>
-        <label>Hoja <select id="hojaPrueba"></select></label>
-        <small id="resumenPrueba"></small>
-      </div>
-      <small>Las columnas se buscan por nombre de encabezado. La columna de clase es opcional.</small>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2><span class="num">3</span>Variables continuas</h2>
-    <label>Tratamiento
-      <select id="continuas">
-        <option value="normal">Distribución normal (densidad)</option>
-        <option value="ancho">Discretizar: intervalos de ancho igual</option>
-        <option value="frecuencia">Discretizar: intervalos de frecuencia igual</option>
-      </select>
-    </label>
-    <label id="lblIntervalos" hidden>Número de intervalos
-      <input type="number" id="intervalos" value="5" min="2">
-    </label>
-  </section>
-
-  <button id="analizar">Analizar</button>
-  <div id="errores" role="alert"></div>
+      <button id="analizar">Analizar</button>
+      <div id="errores" role="alert"></div>
+    </section>
+  </div>
 
   <section id="resultados" class="card resultado" hidden>
-    <div class="stat">
-      <span>Accuracy</span>
-      <strong id="accuracy"></strong>
-      <small id="aciertos"></small>
+    <div class="resumen">
+      <div class="stat">
+        <span>Accuracy</span>
+        <strong id="accuracy"></strong>
+        <small id="aciertos"></small>
+      </div>
+      <p id="info" class="sub"></p>
     </div>
     <h3>Matriz de confusión</h3>
     <div class="scroll" id="matriz"></div>
     <h3>Métricas de evaluación</h3>
     <div class="scroll" id="metricas"></div>
-    <p id="info" class="sub"></p>
   </section>
 
   <section id="predicciones" class="card" hidden>
